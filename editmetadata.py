@@ -1,45 +1,115 @@
-+++++ note: this will obsolete when CONTENTdm upgrades to new version in summer/fall 2024
+#Last updated:  1-22-2024
+#this script does allow use on compound objects (8-21-2022)
 
-GITHUB: https://github.com/grahaa/batch-edit-metadata-in-CDM
-Yes, this works for individual items as well as compound objects
+#instructions: place this file and the csv file into the same directory as the .desc files: 
+#C:\Users\yourprofilename\AppData\Roaming\OCLC\CONTENTdm Project Client\collectioname\Project # 
 
-Instructions:
-1. export a collection or portion of a collection. Nice because you can export a portion (search results) of the entire collection.
-	https://server16786.contentdm.oclc.org/cgi-bin/admin/start.exe
-2. bring data into excel (Anne can do this so quickly and easily so she usually do it)
-3. Anne sends spreadsheet to user
-4. User changes any fields and colors EVERY CHANGED CELL to indicate there has been a change
-5. User sends spreadsheet to Anne
+#PYTHON3 required plus the libraries listed on line 28.
 
-6. Eliminate any fields and columns that are not colored
-7. MUST retain the contentdm number (far right edge of spreadsheet)
-8. Get field nicknames from admin interface, field properties (hover over "edit" button and watch lower left edge of screen, there is a pause)
-9. Create a csv with this structure: record number,fieldnickname,value          [be sure to choose a good delimiter, often use "~"]
-10. Bring csv into Notepad++ and do searches for difficult characters such as:
-	"&"  use &amp; or change to "and" or take a note of record and go back in and edit it back to an &.
-	Scene’s
-	“this is the end” 
-	MS has a proprietary hyphen  "–" just typed two dashes 
-	me‘am
-	... microsoft has a proprietary elipsis character
+"""be careful of the following characters (especially from MS Word or Excel)
+Scene’s
+“this is the end” 
+Unique – and 
+look out for ampersands: should replace with &amp; 
+me‘am
+... microsoft has a wierd elipsis character
+watch for this: aśar ....change to this: aśar
 
-11. Open proj client in collection of interest 
-12. Search for specific records (or download all) and add to the project
-13. Sort by title - can take a couple minutes
-14. Go to directory of project
-	C:\Users\yourprofilename\AppData\Roaming\OCLC\CONTENTdm Project Client\collectioname\Project #
-15. Make a backup of the desc files, place in some safe subdirectory. Can roll back if there is a problem or mistake!
-16. Copy the .py file (python 3 script) and the csv file into this directory
-17. Close the project client!
-18. Open a windows terminal (CMD) and change directory to the directory of the project (where the .desc files are)
-19. Run the script: 
-	python editmetadata.py
-	script asks for: 
-		name of csv file (give full file name)
-		delimiter you want to use, usually ~
-20. Assuming it ends gracefully, open project client and see if the edits are visible - they should be 
-21. Upload, approve, and index the collection. 
+also be sure the windows command prompt window is set to run utf-8 (stack overflow tells you how)
 
-Note: you may need to turn off a field's controlled vocabulary setting before approving, and turn it back on after indexing.
+Required csv format:
+record number,fieldnickname,value  [do not include these fieldnames at the top of the list]
+1517,dateed,1921/1933
+2911,dateed,1958
 
-Note: Anne is planning to write a followup script to check every record to be sure it changed exactly as specified (up till now been doing this by hand with a fresh export)
+if any of your replacement strings contain commas, create csv with different delimiter such as "~" and tell the script at runtime what your delimiter is 
+"""
+
+import csv
+import os
+import glob
+import codecs
+import re
+import time
+import fnmatch
+import datetime
+import pandas
+from os import listdir
+from os.path import isfile, join
+
+def replaceTextBetween(originalText, delimeterA, delimterB, replacementText):
+    leadingText = originalText.split(delimeterA)[0]
+    trailingText = originalText.split(delimterB)[1]
+    return leadingText + delimeterA + replacementText + delimterB + trailingText
+
+def does_file_exist_in_dir(path):
+    return any(isfile(join(path, i)) for i in listdir(path))
+
+def findReplace(directory, find, replace, filePattern):
+    for path, dirs, files in os.walk(os.path.abspath(directory)):
+        for filename in fnmatch.filter(files, filePattern):
+            filepath = os.path.join(path, filename)
+            s = open(filepath, encoding='utf-8').read()
+            s = s.replace(find, replace)
+            with open(filepath, "w", encoding='utf-8') as f:
+                f.write(s)
+                
+def find(name, path):
+    for root, dirs, files in os.walk(path):
+        if name in files:
+            return os.path.join(root, name)
+
+startfile = input("Please enter the name of the csv file: ")
+
+delim = input("please enter the delimiter you want to use: ")
+counter=0
+cntr = 0
+cwd = os.getcwd()
+flag = "on"
+datetime=datetime.datetime.now()
+fileflag = "on"
+
+
+
+with open(startfile, 'rt') as f:
+    readed = csv.reader(f, delimiter = delim)
+    #readed = csv.reader(f, delimiter=delim,encoding='utf-8')
+    changelist = list(readed)
+    #print("changelist",changelist)
+       
+
+for x in changelist:
+    linnum = 0
+    counter = counter+1
+    fname=x[0]+".desc"
+    rootdir = os.getcwd()
+    for subdir, dirs, files in os.walk(rootdir):
+        for file in files:
+            if file == fname:
+                fullpathname = find(fname, subdir)
+                fieldlookup = x[1]
+                #print(fieldlookup)
+                if fieldlookup == "dater":
+                    fieldlookup = "date"
+                #print(fullpathname)
+                ##time.sleep(3)
+                contents = open(fullpathname, encoding='utf-8').read()
+                findfield1 = "<"+fieldlookup+">"
+                findfield2 = "</"+fieldlookup+">"
+                match = re.search(rf"{findfield1}([\s\S]*?){findfield2}", contents, re.S | re.I | re.U)
+                if match is None:
+                    oldtext = ""
+                    print("NOT FOUND: fname and fieldname: ",fname," ",fieldlookup)
+                else:
+                    oldtext = re.search(rf"{findfield1}([\s\S]*?){findfield2}", contents, re.S | re.I | re.U).group(1)
+                if flag == "on":
+                    #print(fullpathname)
+                    flag = "off"
+                    with open(startfile, 'r') as fp:
+                        totallines = len(fp.readlines())
+                        fp.close()
+                print(fname,"~",fieldlookup,"~",x[2]," == ",cntr," of ",totallines)
+                print("filename: ",fname)
+                cntr = cntr + 1 
+                findReplace(subdir, findfield1+oldtext+findfield2, findfield1+str(x[2])+findfield2, fname)
+           
